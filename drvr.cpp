@@ -96,20 +96,25 @@ Fft::transform(data, true); // Inverse FFT to get the correlation result in the 
 
 double maxMag = 0;
 int peakIndex = 0;
+double sumPower = 0;
 
-for (int i = 0; i < data.size(); i++) {
-    // abs() on a complex number returns the magnitude (sqrt(re^2 + im^2))
-    double mag = std::abs(data[i]); 
+for (int idx =0; idx < data.size(); idx++) {
+    double mag = std::abs(data[idx])/16384.0; 
+    sumPower += mag*mag; // Sum of Squares (Power)
+
     if (mag > maxMag) {
         maxMag = mag;
-        peakIndex = i;
+        peakIndex = idx;
     }
 }
 
-printf("bin %3d  Peak found at index: %5d with magnitude: %10.1f %d\n",
-   bin, peakIndex, maxMag, peakIndex / 16);
-}
+double peakPower = maxMag * maxMag;
+double avgNoisePower = (sumPower -peakPower) / (data.size() -1);
+double snr_power = 10.0 * log10(peakPower / avgNoisePower);
 
+printf("bin %3d Peak found at index: %5d with magnitude: %10.1f %4d SNR: %5.2f dB\n", 
+        bin, peakIndex, maxMag, peakIndex / 16, snr_power);
+  }
 /*  for (idx = 0; idx<32; idx++) {
     NCO_IDX = CARRNCO.clk();
     s = CARRNCO.sine(NCO_IDX);
