@@ -1,0 +1,30 @@
+C:\Users\kyle\Nextcloud\code\pcpsa>l1ifpfss -i data.bin
+Parallel Frequency Search Space Acquisition PRN:  0
+input: 81840 Bytes 5 ms 0.001 s LEN:16384 dF:  999.0 Hz 65536
+ms#   1   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17
+18  19  20  21
+PRN: 21 CodePhase:  977 Peak: 17.1 dB at 4091001 Hz  -999 bin:  0
+ 22  23  24  25  26  27  28  29  30  31  32 ms#   2   1   2   3   4   5
+PRN:  5 CodePhase:  604 Peak: 20.0 dB at 4092999 Hz   999 bin:  0
+  6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21
+PRN: 21 CodePhase:  977 Peak: 19.7 dB at 4091001 Hz  -999 bin:  0
+ 22  23  24  25  26  27  28  29
+PRN: 29 CodePhase:  334 Peak: 18.5 dB at 4093998 Hz  1998 bin:  1
+ 30  31  32 ms#   3   1   2   3   4   5
+PRN:  5 CodePhase:  604 Peak: 18.8 dB at 4092999 Hz   999 bin:  0
+  6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
+25  26  27  28  29
+PRN: 29 CodePhase:  334 Peak: 17.5 dB at 4093998 Hz  1998 bin:  1
+ 30  31  32 ms#   4   1   2   3   4   5
+PRN:  5 CodePhase:  604 Peak: 18.0 dB at 4092999 Hz   999 bin:  0
+  6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21
+PRN: 21 CodePhase:  977 Peak: 17.9 dB at 4091001 Hz  -999 bin:  0
+ 22  23  24  25  26  27  28  29
+PRN: 29 CodePhase:  334 Peak: 18.1 dB at 4093998 Hz  1998 bin:  1
+ 30  31  32 ms#   5   1   2   3   4   5
+PRN:  5 CodePhase:  604 Peak: 20.3 dB at 4092999 Hz   999 bin:  0
+  6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21
+PRN: 21 CodePhase:  977 Peak: 17.9 dB at 4091001 Hz  -999 bin:  0
+ 22  23  24  25  26  27  28  29
+PRN: 29 CodePhase:  334 Peak: 18.8 dB at 4093998 Hz  1998 bin:  1
+ 30  31  32
