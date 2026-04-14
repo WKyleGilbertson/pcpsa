@@ -3,6 +3,7 @@
 #include <cmath>
 #include <complex>
 #include <vector> 
+#include <algorithm>
 #include "FftComplex.hpp"
 #include "G2INIT.h"
 #include "NCO.h"
@@ -25,110 +26,123 @@ void stuffVector(vector<complex<double>> &vec, FILE *fp) {
   }
 }
 
+struct AcqResult {
+    int bin;
+    int peakIndex;
+    double peakMagnitude;
+    double snr;
+};
+
+class AcquisitionEngine {
+  private:
+   const size_t N = 16384;
+   //const double SampleFreq = 16.368e6;
+   double m_sampleFreq;
+//   const double RefFreq = 4.092e6;
+  // Pre-computed PRN code FFTs for each PRN (1-32)
+  // Store them to avoid re-calculaing inside search loops
+  std::vector<std::complex<double>> codeFfts[33];
+
+  public:
+    AcquisitionEngine(double sampleFreq) : m_sampleFreq(sampleFreq) {}
+
+    void initPrn(int prn) {
+      std::vector<std::complex<double>> codeVec(N);
+      G2INIT sv(prn, 0); // Initialize with code phase 0 for FFT
+      for (size_t idx = 0; idx < N; idx++) {
+        int chipIdx = (idx / 16) % 1023;
+        double codeVal = (double)sv.CODE[chipIdx];
+        codeVec[idx] = std::complex<double>(codeVal, 0.0);
+      }
+
+      Fft::transform(codeVec, false); // Forward FFT of the code vector
+      for (auto &val : codeVec) val = std::conj(val); // Conjugate for correlation
+      codeFfts[prn] = codeVec; // Store the pre-computed FFT
+  }
+  AcqResult search(int prn, const std::vector<std::complex<double>> &rawData,
+     double centerFreq, int binRange, float binWidth  ) {
+    AcqResult bestResult = {0, 0, -99.0, 0.0};
+    NCO nco(10, m_sampleFreq);
+    std::vector<std::complex<double>> workspace(N);
+
+    for(int bin = -binRange; bin<=binRange; bin++) {
+      workspace = rawData; // Copy original data to workspace for processing
+      nco.SetFrequency(centerFreq + (bin * binWidth));
+       // 1. Carrier Wipeoff
+       for (size_t idx = 0; idx < N; idx++) {
+         uint32_t ncoIdx = nco.clk();
+         std::complex<double> lo(nco.cosine(ncoIdx), nco.sine(ncoIdx));
+         workspace[idx] *= lo; // Mix down to baseband
+       }
+
+       // 2. Correlation in Frequency Domain
+    Fft::transform(workspace, false); // Forward FFT of the mixed signal
+    for (size_t idx = 0; idx < N; idx++) {
+        workspace[idx] *= codeFfts[prn][idx]; // Element-wise multiply with pre-computed code FFT 
+    }
+    Fft::transform(workspace, true); // Inverse FFT to get correlation in time domain
+
+    //3. Peak Detection and SNR Calculation
+    double maxMag = 0;
+    int peakIndex = 0;
+    double sumPower = 0;  
+    for (size_t idx = 0; idx < N; idx++) {
+        double mag = std::abs(workspace[idx]) / N; // Normalize by N
+        sumPower += (mag * mag); // Accumulate power
+
+        if (mag > maxMag) {
+            maxMag = mag;
+            peakIndex = idx;
+        }
+    }
+    double peakPower = maxMag * maxMag;
+    double avgNoisePower = (sumPower - peakPower) / (N - 1); // Exclude peak from noise power calculation
+    double snr = 10.0 * log10(peakPower / avgNoisePower);
+    if (snr > bestResult.snr) {
+        bestResult = {bin, peakIndex, maxMag, snr}; // Update result if this bin has better SNR 
+      }
+    } 
+    return bestResult;
+  }
+};
+
 int main(int argc, char* argv[]) {
-  std::vector<std::complex<double>> originalData(16384);
-  std::vector<std::complex<double>> data(16384);
-  std::vector<std::complex<double>> codeVec(16384);
-  uint8_t PRN = 21;
-  int8_t bin = 0;
-  int8_t num_c = 0, num_s = 0, line=0;
-  int16_t codephase = 0;
-  uint16_t width = 500;
-  uint32_t idx = 0, NCO_IDX = 0;
-  float RefFreq = 4.092e6;
+  // 1. Setup parameters and initialize acquisition engine
   float SampleFreq = 16.368e6;
-  float s = 0.0, c = 0.0;
+  float RefFreq = 4.092e6;
+  uint16_t binWidth = 500;
+  int searchRange = 20; // -20 to +20 bins
+
+  // 2. Initialize acquisition engine
+  AcquisitionEngine engine(SampleFreq);
+  std::vector<std::complex<double>> data(16384);
+
   FILE * IN = fopen("IF.bin", "rb");
-  FILE * OUT = fopen("NCO.bin", "wb");
 
+  std::vector<int> prnsToSearch = {5, 21, 29}; // Example PRNs to search
   if (argc >= 2)
-    PRN = atoi(argv[1]);
-  if (argc >= 3)
-    bin = atoi(argv[2]);
-  printf("PRN: %d bin: %d\n", PRN, bin);
+    prnsToSearch = { atoi(argv[1]) };
 
-  G2INIT sv(PRN, codephase);
-  //NCO CARRNCO(5, SampleFreq);
-  NCO CARRNCO(10, SampleFreq);
-//  CARRNCO.SetFrequency(RefFreq + (bin * width));
-  CARRNCO.LoadCACODE(sv.CODE);
-  for(idx = 0; idx < 16384; idx++) {
-    int chipIdx = (idx/16) % 1023;
-    double codeVal = (double)sv.CODE[chipIdx];
-    codeVec[idx] = complex<double>(codeVal, 0.0);
-}
-Fft::transform(codeVec, false); // Forward FFT of the code vector, to be used in correlation in the frequency domain  
-for (auto &val : codeVec) val = conj(val); // Take the complex conjugate of the code FFT for correlation
-
-  //  for (idx = 0; idx < 1 << 4; idx++) {
-  //    //num = round(n() * 18);
-  //    printf("%10.6f\n", n());
-  //  }   
-/*  for (idx = 0; idx<1023; idx++) {
-    if (idx % 20 == 0) printf("\n%2d: ", ++line);
-    printf("%2d ", sv.CODE[idx]);
-  } */ 
-
-  stuffVector(originalData, IN);  
+  stuffVector(data, IN);  
   fclose(IN);
 
-  for (bin = -20; bin <= 20; bin++) {
-    data = originalData;
-    CARRNCO.SetFrequency(RefFreq + (bin * width));
-  // 1. Process the vector data with the NCO
-for (idx = 0; idx < data.size(); idx++) {
-    // Get the next NCO index and look up the complex LO
-    uint32_t NCO_IDX = CARRNCO.clk();
-    complex<double> lo(CARRNCO.cosine(NCO_IDX), CARRNCO.sine(NCO_IDX));
 
-    // Perform the complex multiply: (I + jQ) * (cos + jsin)
-    data[idx] *= lo;
-}
-// Now data is baseband (or at your target offset) and ready for FFT
-Fft::transform(data, false);// False means not inverse FFT, i.e. forward FFT 
+ printf("Starting Acquisition Search...\n");
+    printf("------------------------------------------------------------------\n");
+    printf("PRN |  Bin  | Freq Offset | Peak Index | Chip Phase | SNR (dB)\n");
+    printf("------------------------------------------------------------------\n");
 
-for (idx = 0; idx < 16384; idx++) {
-    // Perform the correlation in the frequency domain: element-wise multiply with the conjugate of the code FFT
-    data[idx] *= codeVec[idx]; 
-} 
+  for (int prn : prnsToSearch) {
+    engine.initPrn(prn); // Pre-compute the FFT of the PRN code for correlation
+    AcqResult result = engine.search(prn, data, RefFreq, searchRange, binWidth);
 
-Fft::transform(data, true); // Inverse FFT to get the correlation result in the time domain
-
-double maxMag = 0;
-int peakIndex = 0;
-double sumPower = 0;
-
-for (int idx =0; idx < data.size(); idx++) {
-    double mag = std::abs(data[idx])/16384.0; 
-    sumPower += mag*mag; // Sum of Squares (Power)
-
-    if (mag > maxMag) {
-        maxMag = mag;
-        peakIndex = idx;
-    }
-}
-
-double peakPower = maxMag * maxMag;
-double avgNoisePower = (sumPower -peakPower) / (data.size() -1);
-double snr_power = 10.0 * log10(peakPower / avgNoisePower);
-
-printf("bin %3d Peak found at index: %5d with magnitude: %10.1f %4d SNR: %5.2f dB\n", 
-        bin, peakIndex, maxMag, peakIndex / 16, snr_power);
-  }
-/*  for (idx = 0; idx<32; idx++) {
-    NCO_IDX = CARRNCO.clk();
-    s = CARRNCO.sine(NCO_IDX);
-    c = CARRNCO.cosine(NCO_IDX);
-    num_s = (int8_t)round(s);
-    num_c = (int8_t)round(c);
-    fputc(num_s, OUT);
-    if (idx < 100) {
-      if (idx % 5 == 0) printf("\n");
-      //printf("[%4d,%4d] ", num_s, num_c);
-      printf("[%6.3f,%6.3f] ", s, c);
-    }
-  } */
-  printf("\n");
-  fclose(OUT);
+        printf("%3d | %4d  | %10.0f  | %10d | %10.2f | %6.2f\n", 
+                prn, 
+                result.bin, 
+                result.bin * (float)binWidth,
+                result.peakIndex,
+                result.peakIndex / 16.0,
+                result.snr);
+        }
   return 0;
 }
