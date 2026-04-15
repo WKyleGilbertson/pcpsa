@@ -3,6 +3,8 @@
 #include <cmath>
 #include <complex>
 #include <vector> 
+#include <iostream>
+#include <string>
 #include <algorithm>
 #include "FftComplex.hpp"
 #include "G2INIT.h"
@@ -95,10 +97,23 @@ class AcquisitionEngine {
             peakIndex = idx;
         }
     }
+
+   double noiseSum =0;
+   int noiseCount = 0;
+   for (size_t idx = 0; idx < N; idx++) {
+        if (std::abs((int)idx - (int)peakIndex) > 16) {
+          noiseSum += (std::abs(workspace[idx]) / N);
+          noiseCount++;
+        }
+      }
+    double cleanNoiseFloor = noiseSum / noiseCount; // Average noise magnitude
+    double betterSNR = 20.0 * log10(maxMag / cleanNoiseFloor); // SNR in dB using magnitude ratio
+
     double peakPower = maxMag * maxMag;
     double avgNoisePower = (sumPower - peakPower) / (N - 1); // Exclude peak from noise power calculation
     double snr = 10.0 * log10(peakPower / avgNoisePower);
     if (snr > bestResult.snr) {
+        //bestResult = {bin, peakIndex, maxMag, betterSNR}; // Update result if this bin has better SNR 
         bestResult = {bin, peakIndex, maxMag, snr}; // Update result if this bin has better SNR 
       }
     } 
@@ -107,46 +122,55 @@ class AcquisitionEngine {
 };
 
 int main(int argc, char* argv[]) {
-  // 1. Setup parameters and initialize acquisition engine
-  float SampleFreq = 16.368e6;
-  float RefFreq = 4.092e6;
-  uint16_t binWidth = 500;
-  int searchRange = 20; // -20 to +20 bins
+    // 1. Defaults
+    float SampleFreq = 16.368e6;
+    float RefFreq = 4.092e6;
+    uint16_t binWidth = 500;
+    int searchRange = 20;
+    const char* filename = "IF.bin"; // Default file
+    std::vector<int> prnsToSearch;
 
-  // 2. Initialize acquisition engine
-  AcquisitionEngine engine(SampleFreq);
-  std::vector<std::complex<double>> data(16384);
+    // 2. Parse Arguments
+    // Usage: ./program [filename] [prn1 prn2 ...]
+    if (argc >= 2) {
+        filename = argv[1];
+    }
 
-  FILE * IN = fopen("IF.bin", "rb");
-
-  std::vector<int> prnsToSearch = {5, 21, 29}; // Example PRNs to search
-/*  std::vector<int> prnsToSearch = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 
-                                11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-                                21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-                                31, 32}; // Search all PRNs by default */
-  if (argc >= 2)
-    prnsToSearch = { atoi(argv[1]) };
-
-  stuffVector(data, IN);  
-  fclose(IN);
-
-
- printf("Starting Acquisition Search...\n");
-    printf("------------------------------------------------------------------\n");
-    printf("PRN |  Bin  | Freq Offset | Peak Index | Chip Phase | SNR (dB)\n");
-    printf("------------------------------------------------------------------\n");
-
-  for (int prn : prnsToSearch) {
-    engine.initPrn(prn); // Pre-compute the FFT of the PRN code for correlation
-    AcqResult result = engine.search(prn, data, RefFreq, searchRange, binWidth);
-
-        printf("%3d | %4d  | %10.0f  | %10d | %10.2f | %6.2f\n", 
-                prn, 
-                result.bin, 
-                result.bin * (float)binWidth,
-                result.peakIndex,
-                result.peakIndex / 16.0,
-                result.snr);
+    if (argc >= 3) {
+        // User provided specific PRNs
+        for (int i = 2; i < argc; ++i) {
+            prnsToSearch.push_back(std::stoi(argv[i]));
         }
-  return 0;
+    } else {
+        // Default: Search all 32 PRNs
+        for (int i = 1; i <= 32; ++i) prnsToSearch.push_back(i);
+    }
+
+    // 3. Initialize engine and data
+    AcquisitionEngine engine(SampleFreq);
+    std::vector<std::complex<double>> data(16384);
+    
+    FILE * IN = fopen(filename, "rb");
+    if (!IN) {
+        fprintf(stderr, "Error: Could not open file %s\n", filename);
+        return 1;
+    }
+    stuffVector(data, IN);
+    fclose(IN);
+
+    // 4. Search Loop
+    printf("Searching file: %s\n", filename);
+    printf("------------------------------------------------------------------\n");
+    printf("PRN | Bin | Freq Offset | Peak Index | Chip Phase | SNR (dB)\n");
+    printf("------------------------------------------------------------------\n");
+
+    for (int prn : prnsToSearch) {
+        engine.initPrn(prn);
+        AcqResult result = engine.search(prn, data, RefFreq, searchRange, binWidth);
+        printf("%3d | %4d | %10.0f | %10d | %10.2f | %6.2f\n", 
+               prn, result.bin, result.bin * (float)binWidth, 
+               result.peakIndex, result.peakIndex / 16.0, result.snr);
+    }
+
+    return 0;
 }
